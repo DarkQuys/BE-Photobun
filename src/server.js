@@ -47,8 +47,32 @@ io.on('connection', socket => {
 });
 
 // API: lấy trạng thái chung
+// app.get('/api/status', async (req, res) => {
+//   res.json({ currentServing });
+// });
+
 app.get('/api/status', async (req, res) => {
-  res.json({ currentServing });
+  try {
+    let name = '';
+    let phone = '';
+
+    if (currentServing > 0) {
+      const currentDoc = await QueueNumber.findOne({ num: currentServing });
+      if (currentDoc) {
+        name = currentDoc.name;
+        phone = currentDoc.phone;
+      }
+    }
+
+    res.json({
+      currentServing,
+      name,
+      phone,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: 'Lỗi khi lấy trạng thái' });
+  }
 });
 
 // API: tạo số mới
