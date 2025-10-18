@@ -32,7 +32,12 @@ const NumberSchema = new mongoose.Schema({
   status: { type: String, enum: ['waiting','served','called'], default: 'waiting' },
   phone: String,
   name: String,
-  createdAt: { type: Date, default: Date.now },
+  room: { type: String, enum: ['phong1', 'phong2', 'phong3'], required: true },
+    createdAt: {
+    type: Date,
+    default: Date.now,
+    expires: 60 * 60 * 24, // 1 ngày tự xoá
+  },
 });
 const QueueNumber = mongoose.model('QueueNumber', NumberSchema);
 
@@ -55,12 +60,14 @@ app.get('/api/status', async (req, res) => {
   try {
     let name = '';
     let phone = '';
-
+    let room = '';
     if (currentServing > 0) {
       const currentDoc = await QueueNumber.findOne({ num: currentServing });
       if (currentDoc) {
+        console.log('aa' ,currentDoc )
         name = currentDoc.name;
         phone = currentDoc.phone;
+        room = currentDoc.room;
       }
     }
 
@@ -68,6 +75,7 @@ app.get('/api/status', async (req, res) => {
       currentServing,
       name,
       phone,
+      room
     });
   } catch (err) {
     console.error(err);
@@ -76,23 +84,33 @@ app.get('/api/status', async (req, res) => {
 });
 
 // API: tạo số mới
+
+  // const { name, phone, room } = req.body;
+  // if (!room) return res.status(400).json({ success: false, message: 'Thiếu thông tin phòng' });
+
+  // const last = await QueueNumber.findOne({ room }).sort({ num: -1 }).exec();
 app.post('/api/take', async (req, res) => {
-  // simple: next number = max num +1
+  const {room} = req.body
   const last = await QueueNumber.findOne().sort({ num: -1 }).exec();
   const nextNum = last ? last.num + 1 : 1;
   const doc = await QueueNumber.create({
     num: nextNum,
     name: req.body.name || '',
-    phone: req.body.phone || ''
+    phone: req.body.phone || '',
+     room
   });
   // emit update (optional: count waiting)
-  io.emit('new-number', { num: nextNum });
-  res.json({ success: true, number: nextNum, id: doc._id });
+  //io.emit('new-number', { room, num: nextNum });
+  io.emit('new-number', { num: nextNum, name: req.body.name, phone: req.body.phone, room: req.body.room });
+
+  res.json({ success: true, number: nextNum, id: doc._id ,name :doc.name });
 });
+
+
 
 // API: admin advance (bắt đầu phục vụ số tiếp theo)
 app.post('/api/advance', async (req, res) => {
-  // find next waiting with num > currentServing
+  
   const next = await QueueNumber.findOne({ num: { $gt: currentServing }, status: 'waiting' }).sort({ num: 1 }).exec();
   if (!next) return res.json({ success: false, message: 'No waiting' });
   currentServing = next.num;
@@ -105,17 +123,31 @@ app.post('/api/advance', async (req, res) => {
 app.get('/api/waiting', async (req, res) => {
   const waiting = await QueueNumber.find({ status: 'waiting' })
     .sort({ num: 1 })
-    .select('num name phone');
+    .select('num name phone room');
   res.json(waiting);
 });
 
-// API: lấy toàn bộ danh sách trong DB
+
 app.get('/api/all', async (req, res) => {
-  const list = await QueueNumber.find().sort({ num: 1 });
+  const list = await QueueNumber.find().sort({ num: -1 }); // giảm dần
   res.json(list);
 });
 
-// API: xóa 1 bản ghi theo id
+
+app.get('/api/waiting/:room', async (req, res) => {
+  const { room } = req.params;
+  const waiting = await QueueNumber.find({ room, status: 'waiting' }).sort({ num: 1 });
+  res.json(waiting);
+});
+
+//update
+app.put('/api/update-status/:id', async (req, res) => {
+  const { status } = req.body;
+  await QueueNumber.findByIdAndUpdate(req.params.id, { status });
+  io.emit('status', { currentServing });
+  res.json({ success: true });
+});
+
 app.delete('/api/delete/:id', async (req, res) => {
   const { id } = req.params;
   try {
@@ -125,6 +157,8 @@ app.delete('/api/delete/:id', async (req, res) => {
     res.status(400).json({ success: false, error: err.message });
   }
 });
+
+
 
 mongoose.connect(`${process.env.URL_MONGODB}`)
     .then(() => console.log('Connected!')) 
