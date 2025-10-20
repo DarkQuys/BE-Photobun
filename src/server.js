@@ -6,6 +6,7 @@ const mongoose = require('mongoose')
 const mysql = require('mysql2/promise');
 const http = require('http');
 const Message = require('./model/message')
+const DailyStats = require('./model/DailyStats')
 const  {initSocket} = require('./sevices/mesService')
 const { Server } = require('socket.io');
 var cookieParser = require('cookie-parser')
@@ -101,6 +102,35 @@ app.post('/api/take', async (req, res) => {
   });
   // emit update (optional: count waiting)
   //io.emit('new-number', { room, num: nextNum });
+
+
+    // const today = new Date().toISOString().split("T")[0]; // "YYYY-MM-DD"
+    // const pricePerShot = 70000; // 70k / lượt
+
+    // await DailyStats.findOneAndUpdate(
+    //   { date: today, room },
+    //   { $inc: { totalShots: 1, totalIncome: pricePerShot } },
+    //   { upsert: true, new: true }
+    // );
+
+    // Cập nhật thống kê lượt chụp & doanh thu cho ngày hôm nay
+    const today = new Date().toISOString().split('T')[0];
+    const pricePerShot = 70000;
+
+    // Tìm hoặc tạo mới thống kê của ngày hôm nay
+    const stats = await DailyStats.findOneAndUpdate(
+      { date: today },
+      {
+        $inc: {
+          [`stats.${room}.totalShots`]: 1,
+          [`stats.${room}.totalIncome`]: pricePerShot,
+          totalShots: 1,
+          totalIncome: pricePerShot,
+        },
+      },
+      { upsert: true, new: true }
+    );
+
   io.emit('new-number', { num: nextNum, name: req.body.name, phone: req.body.phone, room: req.body.room });
 
   res.json({ success: true, number: nextNum, id: doc._id ,name :doc.name });
@@ -157,6 +187,26 @@ app.delete('/api/delete/:id', async (req, res) => {
     res.status(400).json({ success: false, error: err.message });
   }
 });
+
+
+// API THỐNG KÊ DOANH THU 
+
+app.get("/api/stats", async (req, res) => {
+  try {
+    const date = req.query.date || new Date().toISOString().split("T")[0];
+    const stats = await DailyStats.find({ date });
+
+    const totalIncome = stats.reduce((sum, s) => sum + s.totalIncome, 0);
+    const totalShots = stats.reduce((sum, s) => sum + s.totalShots, 0);
+
+    res.json({ date, totalShots, totalIncome, details: stats });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ success: false, message: "Lỗi khi lấy thống kê" });
+  }
+});
+
+
 
 
 
